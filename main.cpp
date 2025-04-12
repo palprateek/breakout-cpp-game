@@ -16,6 +16,7 @@
 #define BALL_RADIUS 10.0f
 #define INITIAL_BALL_SPEED_X 4.0f
 #define INITIAL_BALL_SPEED_Y -4.0f
+#define MIN_BALL_SPEED_X 2.0f // Minimum horizontal speed to prevent vertical-only bouncing
 
 #define BRICK_ROWS 5
 #define BRICKS_PER_ROW 10
@@ -98,7 +99,7 @@ int main(void)
 {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Raylib Breakout");
     SetTargetFPS(60);
-    SetWindowState(FLAG_VSYNC_HINT); // Enable V-Sync to reduce flickering/tearing
+    SetWindowState(FLAG_VSYNC_HINT);
 
     currentState = MENU;
     selectedMenuOption = 0;
@@ -173,6 +174,12 @@ void ResetBallAndPaddle(void)
     paddle.rect.y = SCREEN_HEIGHT - paddle.rect.height - 30.0f;
 
     ball.position = { paddle.rect.x + paddle.rect.width / 2.0f, paddle.rect.y - BALL_RADIUS - 5.0f };
+    // Ensure non-zero horizontal speed
+    float baseSpeedX = (currentDifficulty == EASY) ? INITIAL_BALL_SPEED_X * 0.8f :
+                       (currentDifficulty == MEDIUM) ? INITIAL_BALL_SPEED_X : INITIAL_BALL_SPEED_X * 1.2f;
+    ball.speed.x = baseSpeedX * (GetRandomValue(0, 1) ? 1.0f : -1.0f); // Randomize direction
+    ball.speed.y = (currentDifficulty == EASY) ? INITIAL_BALL_SPEED_Y * 0.8f :
+                   (currentDifficulty == MEDIUM) ? INITIAL_BALL_SPEED_Y : INITIAL_BALL_SPEED_Y * 1.2f;
     ball.active = true;
 }
 
@@ -280,11 +287,22 @@ void UpdateGame(void)
     {
         if (ball.speed.y > 0)
         {
-            ball.speed.y *= -1;
+            // Reverse vertical direction and maintain speed magnitude
+            float speedMagnitude = sqrtf(ball.speed.x * ball.speed.x + ball.speed.y * ball.speed.y);
+            ball.speed.y = -fabsf(ball.speed.y); // Ensure upward bounce
             float hitPoint = (ball.position.x - paddle.rect.x) / paddle.rect.width;
-            if (hitPoint < 0.4f) ball.speed.x = -fabsf(ball.speed.x) * 1.2f;
-            else if (hitPoint > 0.6f) ball.speed.x = fabsf(ball.speed.x) * 1.2f;
-            else ball.speed.x = (hitPoint - 0.5f) * 2.0f * ball.speed.x;
+            // Calculate new horizontal speed, ensuring it doesn't go too low
+            float targetSpeedX;
+            if (hitPoint < 0.4f)
+                targetSpeedX = -speedMagnitude * 0.6f; // Left side, strong leftward
+            else if (hitPoint > 0.6f)
+                targetSpeedX = speedMagnitude * 0.6f;  // Right side, strong rightward
+            else
+                targetSpeedX = (hitPoint - 0.5f) * 2.0f * speedMagnitude * 0.5f; // Middle, scaled
+            // Ensure minimum horizontal speed and add slight randomization
+            if (fabsf(targetSpeedX) < MIN_BALL_SPEED_X)
+                targetSpeedX = (targetSpeedX >= 0 ? MIN_BALL_SPEED_X : -MIN_BALL_SPEED_X) * (1.0f + GetRandomValue(-10, 10) / 100.0f);
+            ball.speed.x = targetSpeedX;
             ball.position.y = paddle.rect.y - ball.radius - 0.1f;
         }
     }
@@ -300,7 +318,21 @@ void UpdateGame(void)
                     bricks[i][j].active = false;
                     activeBricks--;
                     score += 10;
-                    ball.speed.y *= -1;
+                    // Determine collision side to adjust speed appropriately
+                    float dx = ball.position.x - (bricks[i][j].rect.x + bricks[i][j].rect.width / 2);
+                    float dy = ball.position.y - (bricks[i][j].rect.y + bricks[i][j].rect.height / 2);
+                    if (fabsf(dx) > bricks[i][j].rect.width / 2 || fabsf(dy) > bricks[i][j].rect.height / 2)
+                    {
+                        if (fabsf(dx) > fabsf(dy))
+                            ball.speed.x *= -1; // Side hit
+                        else
+                            ball.speed.y *= -1; // Top/bottom hit
+                    }
+                    else
+                        ball.speed.y *= -1; // Default to vertical bounce for simplicity
+                    // Ensure minimum horizontal speed after brick hit
+                    if (fabsf(ball.speed.x) < MIN_BALL_SPEED_X)
+                        ball.speed.x = (ball.speed.x >= 0 ? MIN_BALL_SPEED_X : -MIN_BALL_SPEED_X);
                     if (activeBricks <= 0)
                     {
                         currentState = YOU_WIN;
