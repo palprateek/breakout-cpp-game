@@ -1,7 +1,7 @@
 #include "raylib.h"
-#include <iostream> // For std::cout, std::cerr (optional, for debugging)
-#include <vector>   // For storing bricks (though we use a C-style array here for simplicity)
-#include <cmath>    // For fabsf
+#include <iostream>
+#include <vector>
+#include <cmath>
 
 //----------------------------------------------------------------------------------
 // Defines and Global Constants
@@ -15,13 +15,13 @@
 
 #define BALL_RADIUS 10.0f
 #define INITIAL_BALL_SPEED_X 4.0f
-#define INITIAL_BALL_SPEED_Y -4.0f // Start moving upwards
+#define INITIAL_BALL_SPEED_Y -4.0f
 
 #define BRICK_ROWS 5
 #define BRICKS_PER_ROW 10
 #define BRICK_WIDTH (SCREEN_WIDTH / BRICKS_PER_ROW)
 #define BRICK_HEIGHT 30
-#define BRICK_SPACING 1 // Small gap between bricks
+#define BRICK_SPACING 1
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -51,6 +51,12 @@ typedef enum GameState {
     YOU_WIN
 } GameState;
 
+typedef enum Difficulty {
+    EASY,
+    MEDIUM,
+    HARD
+} Difficulty;
+
 //------------------------------------------------------------------------------------
 // Global Variables
 //------------------------------------------------------------------------------------
@@ -62,41 +68,38 @@ static int lives = 3;
 static GameState currentState = PLAYING;
 static bool paused = false;
 static int activeBricks = BRICK_ROWS * BRICKS_PER_ROW;
+static float gameTimer = 0.0f; // Timer in seconds
+static Difficulty currentDifficulty = EASY; // Start with Easy
+static int currentLevel = 1; // Track current level (1-based)
 
 //------------------------------------------------------------------------------------
 // Module Functions Declaration (local)
 //------------------------------------------------------------------------------------
-static void InitGame(void);         // Initialize game
-static void UpdateGame(void);       // Update game (one frame)
-static void DrawGame(void);         // Draw game (one frame)
-static void UnloadGame(void);       // Unload game resources (if any needed beyond CloseWindow)
-static void UpdateDrawFrame(void); // Update and Draw (combines Update and Draw)
-static void ResetBallAndPaddle(void); // Helper to reset ball/paddle state
+static void InitGame(void);
+static void UpdateGame(void);
+static void DrawGame(void);
+static void UnloadGame(void);
+static void UpdateDrawFrame(void);
+static void ResetBallAndPaddle(void);
+static void SetupLevel(Difficulty diff); // New function to configure levels
 
 //------------------------------------------------------------------------------------
 // Program main entry point
 //------------------------------------------------------------------------------------
 int main(void)
 {
-    // Initialization
-    //--------------------------------------------------------------------------------------
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Raylib Breakout");
-    SetTargetFPS(60); // Set our game to run at 60 frames-per-second
+    SetTargetFPS(60);
 
     InitGame();
-    //--------------------------------------------------------------------------------------
 
-    // Main game loop
-    while (!WindowShouldClose()) // Detect window close button or ESC key
+    while (!WindowShouldClose())
     {
         UpdateDrawFrame();
     }
 
-    // De-Initialization
-    //--------------------------------------------------------------------------------------
-    UnloadGame(); // Unload any game specific resources if needed
-    CloseWindow(); // Close window and OpenGL context
-    //--------------------------------------------------------------------------------------
+    UnloadGame();
+    CloseWindow();
 
     return 0;
 }
@@ -105,24 +108,41 @@ int main(void)
 // Module Functions Definitions (local)
 //------------------------------------------------------------------------------------
 
-// Initialize game variables
 void InitGame(void)
 {
-    // Initialize Paddle
-    paddle.rect.width = PADDLE_WIDTH;
+    currentLevel = 1;
+    currentDifficulty = EASY;
+    score = 0;
+    lives = 3;
+    gameTimer = 0.0f;
+    currentState = PLAYING;
+    paused = false;
+    SetupLevel(currentDifficulty);
+}
+
+void SetupLevel(Difficulty diff)
+{
+    // Configure paddle based on difficulty
+    paddle.rect.width = (diff == EASY) ? PADDLE_WIDTH * 1.5f : (diff == MEDIUM) ? PADDLE_WIDTH : PADDLE_WIDTH * 0.7f;
     paddle.rect.height = PADDLE_HEIGHT;
     paddle.rect.x = (SCREEN_WIDTH - paddle.rect.width) / 2.0f;
-    paddle.rect.y = SCREEN_HEIGHT - paddle.rect.height - 30.0f; // Position near bottom
+    paddle.rect.y = SCREEN_HEIGHT - paddle.rect.height - 30.0f;
     paddle.color = BLUE;
 
     // Initialize Ball
-    ResetBallAndPaddle(); // Set initial ball state
+    ResetBallAndPaddle();
     ball.radius = BALL_RADIUS;
     ball.color = MAROON;
+    // Adjust ball speed based on difficulty
+    ball.speed.x = (diff == EASY) ? INITIAL_BALL_SPEED_X * 0.8f :
+                   (diff == MEDIUM) ? INITIAL_BALL_SPEED_X : INITIAL_BALL_SPEED_X * 1.2f;
+    ball.speed.y = (diff == EASY) ? INITIAL_BALL_SPEED_Y * 0.8f :
+                   (diff == MEDIUM) ? INITIAL_BALL_SPEED_Y : INITIAL_BALL_SPEED_Y * 1.2f;
 
     // Initialize Bricks
-    activeBricks = 0; // Reset count before initializing
-    int initialOffsetY = 50; // Starting Y position for the first row of bricks
+    activeBricks = 0;
+    int initialOffsetY = 50;
+    int activeRows = (diff == EASY) ? BRICK_ROWS - 2 : (diff == MEDIUM) ? BRICK_ROWS : BRICK_ROWS;
 
     for (int i = 0; i < BRICK_ROWS; i++)
     {
@@ -132,126 +152,112 @@ void InitGame(void)
             bricks[i][j].rect.height = BRICK_HEIGHT - BRICK_SPACING;
             bricks[i][j].rect.x = j * BRICK_WIDTH + BRICK_SPACING / 2.0f;
             bricks[i][j].rect.y = initialOffsetY + i * BRICK_HEIGHT + BRICK_SPACING / 2.0f;
-            bricks[i][j].active = true;
-            activeBricks++; // Increment count for each active brick
-
-            // Simple color pattern based on row
-            if ((i + j) % 2 == 0) bricks[i][j].color = GRAY;
-            else bricks[i][j].color = DARKGRAY;
-             // Add more colors based on row if desired
-            if (i < 2) bricks[i][j].color = YELLOW;
-            else if (i < 4) bricks[i][j].color = GREEN;
+            // Set bricks active based on difficulty
+            bricks[i][j].active = (i < activeRows);
+            if (bricks[i][j].active) activeBricks++;
+            // Color based on difficulty
+            if (diff == EASY) bricks[i][j].color = YELLOW;
+            else if (diff == MEDIUM) bricks[i][j].color = GREEN;
             else bricks[i][j].color = ORANGE;
-
         }
     }
-
-    score = 0;
-    lives = 3;
-    currentState = PLAYING;
-    paused = false;
 }
 
-// Reset ball and paddle to starting positions
 void ResetBallAndPaddle(void)
 {
     paddle.rect.x = (SCREEN_WIDTH - paddle.rect.width) / 2.0f;
     paddle.rect.y = SCREEN_HEIGHT - paddle.rect.height - 30.0f;
 
     ball.position = { paddle.rect.x + paddle.rect.width / 2.0f, paddle.rect.y - BALL_RADIUS - 5.0f };
-    ball.speed = { INITIAL_BALL_SPEED_X, INITIAL_BALL_SPEED_Y };
-    ball.active = true; // Make the ball ready to move
+    // Use current ball speed (set in SetupLevel)
+    ball.active = true;
 }
 
-
-// Update game (one frame)
 void UpdateGame(void)
 {
-    // Toggle pause (always allow toggling)
+    // Toggle pause
     if (IsKeyPressed(KEY_P)) paused = !paused;
 
-    // --- Handle Game Over / Win states ---
-    // Check for restart input FIRST, regardless of pause state
+    // Handle Game Over / Win states
     if (currentState == GAME_OVER || currentState == YOU_WIN)
     {
         if (IsKeyPressed(KEY_ENTER))
         {
-            InitGame(); // Restart the game
-            currentState = PLAYING; // Explicitly set state back to playing
-            paused = false;      // Ensure game isn't paused on restart
+            if (currentState == YOU_WIN && currentDifficulty < HARD)
+            {
+                currentLevel++;
+                currentDifficulty = (Difficulty)(currentDifficulty + 1);
+                SetupLevel(currentDifficulty);
+                gameTimer = 0.0f; // Reset timer for new level
+                score += 100; // Bonus for completing a level
+            }
+            else
+            {
+                InitGame(); // Restart from Easy
+            }
+            currentState = PLAYING;
+            paused = false;
         }
-        // If game is over/won, don't run the rest of the game logic for this frame
         return;
     }
 
-    // --- Main Gameplay Logic ---
-    // Only run the following if the game is currently PLAYING and not paused
-    if (paused || currentState != PLAYING) {
-        return; // Exit if paused or not in PLAYING state (redundant after above check, but safe)
-    }
+    if (paused || currentState != PLAYING) return;
 
+    // Update timer
+    gameTimer += GetFrameTime();
 
-    // --- Paddle Movement --- (Runs only if PLAYING and not paused)
+    // Paddle Movement
     if (IsKeyDown(KEY_LEFT)) paddle.rect.x -= PADDLE_SPEED;
     if (IsKeyDown(KEY_RIGHT)) paddle.rect.x += PADDLE_SPEED;
 
-    // Keep paddle within screen bounds
+    // Keep paddle within bounds
     if (paddle.rect.x < 0) paddle.rect.x = 0;
     if (paddle.rect.x + paddle.rect.width > SCREEN_WIDTH) paddle.rect.x = SCREEN_WIDTH - paddle.rect.width;
 
-    // --- Ball Movement --- (Runs only if PLAYING and not paused)
+    // Ball Movement
     if (ball.active)
     {
-        ball.position.x += ball.speed.x;
-        ball.position.y += ball.speed.y;
+        ball.position.x += ball.speed    ball.position.y += ball.speed.y;
     }
-    // ... (rest of ball related logic like launching if needed)
 
-
-    // --- Collision Detection: Ball vs Walls --- (Runs only if PLAYING and not paused)
-    // Left/Right walls
+    // Collision Detection: Ball vs Walls
     if (ball.position.x + ball.radius >= SCREEN_WIDTH || ball.position.x - ball.radius <= 0)
     {
         ball.speed.x *= -1;
     }
-    // Top wall
     if (ball.position.y - ball.radius <= 0)
     {
         ball.speed.y *= -1;
     }
-    // Bottom wall (lose life)
     if (ball.position.y + ball.radius >= SCREEN_HEIGHT)
     {
         lives--;
-        ball.active = false; // Temporarily deactivate ball
-
+        ball.active = false;
         if (lives <= 0)
         {
             currentState = GAME_OVER;
-            // Don't immediately return here, let the state change be processed
-            // The return at the top of the function will handle skipping logic next frame
         }
         else
         {
-            ResetBallAndPaddle(); // Reset for the next life
+            ResetBallAndPaddle();
         }
     }
 
-    // --- Collision Detection: Ball vs Paddle --- (Runs only if PLAYING and not paused)
+    // Collision Detection: Ball vs Paddle
     if (CheckCollisionCircleRec(ball.position, ball.radius, paddle.rect))
     {
-         if (ball.speed.y > 0) // Only bounce if ball is moving downwards
-         {
-             ball.speed.y *= -1;
-             float hitPoint = (ball.position.x - paddle.rect.x) / paddle.rect.width; // 0 to 1
-             if (hitPoint < 0.4f) ball.speed.x = -fabsf(INITIAL_BALL_SPEED_X) * 1.2f; // Hit left side
-             else if (hitPoint > 0.6f) ball.speed.x = fabsf(INITIAL_BALL_SPEED_X) * 1.2f; // Hit right side
-             else ball.speed.x = (hitPoint - 0.5f) * 2.0f * INITIAL_BALL_SPEED_X; // Hit middle
-             ball.position.y = paddle.rect.y - ball.radius - 0.1f; // Prevent sticking
-         }
+        if (ball.speed.y > 0)
+        {
+            ball.speed.y *= -1;
+            float hitPoint = (ball.position.x - paddle.rect.x) / paddle.rect.width;
+            if (hitPoint < 0.4f) ball.speed.x = -fabsf(ball.speed.x) * 1.2f;
+            else if (hitPoint > 0.6f) ball.speed.x = fabsf(ball.speed.x) * 1.2f;
+            else ball.speed.x = (hitPoint - 0.5f) * 2.0f * ball.speed.x;
+            ball.position.y = paddle.rect.y - ball.radius - 0.1f;
+        }
     }
 
-    // --- Collision Detection: Ball vs Bricks --- (Runs only if PLAYING and not paused)
+    // Collision Detection: Ball vs Bricks
     for (int i = 0; i < BRICK_ROWS; i++)
     {
         for (int j = 0; j < BRICKS_PER_ROW; j++)
@@ -264,28 +270,24 @@ void UpdateGame(void)
                     activeBricks--;
                     score += 10;
                     ball.speed.y *= -1;
-
                     if (activeBricks <= 0)
                     {
                         currentState = YOU_WIN;
-                        // Don't immediately return, let the state change be processed
                     }
-                    goto brick_collision_handled; // Exit loops once a collision is handled
+                    goto brick_collision_handled;
                 }
             }
         }
     }
-    brick_collision_handled:;
+brick_collision_handled:;
+}
 
-} // End of UpdateGame
-
-// Draw game (one frame)
 void DrawGame(void)
 {
     BeginDrawing();
-    ClearBackground(RAYWHITE); // Or DARKBLUE, BLACK etc.
+    ClearBackground(RAYWHITE);
 
-    if (currentState == PLAYING || currentState == GAME_OVER || currentState == YOU_WIN) // Draw even if game over/won
+    if (currentState == PLAYING || currentState == GAME_OVER || currentState == YOU_WIN)
     {
         // Draw Paddle
         DrawRectangleRec(paddle.rect, paddle.color);
@@ -302,52 +304,52 @@ void DrawGame(void)
             }
         }
 
-         // Draw Ball (only if active, or maybe always show it?)
-        if (ball.active || currentState == PLAYING) // Draw ball if playing or just before starting a new life
+        // Draw Ball
+        if (ball.active || currentState == PLAYING)
         {
-             DrawCircleV(ball.position, ball.radius, ball.color);
+            DrawCircleV(ball.position, ball.radius, ball.color);
         }
 
-
-        // Draw UI (Score and Lives)
+        // Draw UI
         DrawText(TextFormat("SCORE: %04i", score), 10, 10, 20, DARKGRAY);
         DrawText(TextFormat("LIVES: %i", lives), SCREEN_WIDTH - 100, 10, 20, DARKGRAY);
+        // Draw Timer
+        int minutes = (int)(gameTimer / 60);
+        int seconds = (int)(gameTimer) % 60;
+        DrawText(TextFormat("TIME: %02i:%02i", minutes, seconds), SCREEN_WIDTH / 2 - 50, 10, 20, DARKGRAY);
+        // Draw Level
+        const char* diffText = (currentDifficulty == EASY) ? "EASY" : (currentDifficulty == MEDIUM) ? "MEDIUM" : "HARD";
+        DrawText(TextFormat("LEVEL: %i (%s)", currentLevel, diffText), 10, 40, 20, DARKGRAY);
 
-        // Draw Pause Message
         if (paused && currentState == PLAYING)
         {
             DrawText("PAUSED", SCREEN_WIDTH / 2 - MeasureText("PAUSED", 40) / 2, SCREEN_HEIGHT / 2 - 20, 40, GRAY);
         }
     }
 
-
     // Draw Game Over / Win Messages
     if (currentState == GAME_OVER)
     {
-        DrawRectangle(0, SCREEN_HEIGHT/2 - 40, SCREEN_WIDTH, 80, Fade(BLACK, 0.7f)); // Semi-transparent background
+        DrawRectangle(0, SCREEN_HEIGHT/2 - 40, SCREEN_WIDTH, 80, Fade(BLACK, 0.7f));
         DrawText("GAME OVER", SCREEN_WIDTH / 2 - MeasureText("GAME OVER", 40) / 2, SCREEN_HEIGHT / 2 - 20, 40, RED);
         DrawText("Press [ENTER] to RESTART", SCREEN_WIDTH / 2 - MeasureText("Press [ENTER] to RESTART", 20) / 2, SCREEN_HEIGHT / 2 + 25, 20, LIGHTGRAY);
     }
     else if (currentState == YOU_WIN)
     {
-        DrawRectangle(0, SCREEN_HEIGHT/2 - 40, SCREEN_WIDTH, 80, Fade(BLACK, 0.7f)); // Semi-transparent background
+        DrawRectangle(0, SCREEN_HEIGHT/2 - 40, SCREEN_WIDTH, 80, Fade(BLACK, 0.7f));
         DrawText("YOU WIN!", SCREEN_WIDTH / 2 - MeasureText("YOU WIN!", 40) / 2, SCREEN_HEIGHT / 2 - 20, 40, GREEN);
-        DrawText("Press [ENTER] to PLAY AGAIN", SCREEN_WIDTH / 2 - MeasureText("Press [ENTER] to PLAY AGAIN", 20) / 2, SCREEN_HEIGHT / 2 + 25, 20, LIGHTGRAY);
-
+        const char* nextText = (currentDifficulty < HARD) ? "Press [ENTER] for NEXT LEVEL" : "Press [ENTER] to PLAY AGAIN";
+        DrawText(nextText, SCREEN_WIDTH / 2 - MeasureText(nextText, 20) / 2, SCREEN_HEIGHT / 2 + 25, 20, LIGHTGRAY);
     }
-
 
     EndDrawing();
 }
 
-// Unload game-specific resources
 void UnloadGame(void)
 {
-    // TODO: Unload any textures, sounds, fonts if loaded
-    // For this simple example, there's nothing extra beyond what CloseWindow handles.
+    // Nothing to unload
 }
 
-// Update and Draw (one frame)
 void UpdateDrawFrame(void)
 {
     UpdateGame();
