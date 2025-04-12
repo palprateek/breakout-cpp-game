@@ -8,8 +8,8 @@
 //----------------------------------------------------------------------------------
 // Defines and Global Constants
 //----------------------------------------------------------------------------------
-constexpr int SCREEN_WIDTH = 800;
-constexpr int SCREEN_HEIGHT = 600;
+constexpr int SCREEN_WIDTH = 1280;
+constexpr int SCREEN_HEIGHT = 720;
 
 constexpr float PADDLE_WIDTH = 100.0f;
 constexpr float PADDLE_HEIGHT = 20.0f;
@@ -50,6 +50,7 @@ struct Ball {
     Vector2 speed;
     float radius;
     bool active;
+    bool hasCollided; // Track if ball has collided this frame
     Color color;
 };
 
@@ -211,7 +212,9 @@ void SetupLevel(Difficulty diff)
         else
             bricks[i][j].hitsRequired = GetRandomValue(1, 3);
         bricks[i][j].moveSpeed = (diff == Difficulty::HARD && i == activeRows - 1 && GetRandomValue(0, 100) < 30) ? 2.0f : 0.0f;
-        bricks[i][j].color = (i % 4 == 0) ? RED : (i % 4 == 1) ? ORANGE : (i % 4 == 2) ? YELLOW : GREEN;
+        // Assign color based on hitsRequired
+        bricks[i][j].color = (bricks[i][j].hitsRequired == 1) ? GREEN :
+                             (bricks[i][j].hitsRequired == 2) ? YELLOW : RED;
         activeBricks++;
     }
 
@@ -229,6 +232,7 @@ void ResetBallsAndPaddle()
     newBall.position = { paddle.rect.x + paddle.rect.width / 2.0f, paddle.rect.y - BALL_RADIUS - 5.0f };
     newBall.radius = BALL_RADIUS;
     newBall.color = WHITE;
+    newBall.hasCollided = false;
     const float baseSpeedX = (currentDifficulty == Difficulty::EASY) ? INITIAL_BALL_SPEED_X * 0.8f :
                              (currentDifficulty == Difficulty::MEDIUM) ? INITIAL_BALL_SPEED_X * 1.2f : INITIAL_BALL_SPEED_X * 1.5f;
     newBall.speed.x = baseSpeedX * (GetRandomValue(0, 1) ? 1.0f : -1.0f);
@@ -314,6 +318,7 @@ void ApplyPowerUp(PowerUpType type)
                 newBall.speed.x *= (i == 0 ? -1.0f : 1.0f);
                 newBall.speed.y = -std::abs(newBall.speed.y);
                 newBall.active = true;
+                newBall.hasCollided = false;
                 balls.push_back(newBall);
             }
             break;
@@ -337,12 +342,18 @@ void UpdateMenu()
 
 bool HandleBrickCollision(Ball& ball)
 {
+    if (ball.hasCollided) return false; // Skip if already collided this frame
+
     for (int i = 0; i < BRICK_ROWS; i++)
     {
         for (int j = 0; j < BRICKS_PER_ROW; j++)
         {
             if (bricks[i][j].active && CheckCollisionCircleRec(ball.position, ball.radius, bricks[i][j].rect))
             {
+                // Mark ball as having collided
+                ball.hasCollided = true;
+
+                // Decrement hits
                 bricks[i][j].hitsRequired--;
                 if (bricks[i][j].hitsRequired <= 0)
                 {
@@ -353,27 +364,47 @@ bool HandleBrickCollision(Ball& ball)
                 }
                 else
                 {
-                    bricks[i][j].color = Fade(bricks[i][j].color, 0.8f);
+                    // Update color based on remaining hits
+                    bricks[i][j].color = (bricks[i][j].hitsRequired == 1) ? GREEN :
+                                         (bricks[i][j].hitsRequired == 2) ? YELLOW : RED;
                 }
 
-                const float dx = ball.position.x - (bricks[i][j].rect.x + bricks[i][j].rect.width / 2);
-                const float dy = ball.position.y - (bricks[i][j].rect.y + bricks[i][j].rect.height / 2);
-                if (std::abs(dx) > bricks[i][j].rect.width / 2 || std::abs(dy) > bricks[i][j].rect.height / 2)
+                // Determine collision side by calculating overlap
+                float leftOverlap = (ball.position.x + ball.radius) - bricks[i][j].rect.x;
+                float rightOverlap = (bricks[i][j].rect.x + bricks[i][j].rect.width) - (ball.position.x - ball.radius);
+                float topOverlap = (ball.position.y + ball.radius) - bricks[i][j].rect.y;
+                float bottomOverlap = (bricks[i][j].rect.y + bricks[i][j].rect.height) - (ball.position.y - ball.radius);
+
+                // Find the smallest overlap to determine collision side
+                float minOverlap = std::min({ leftOverlap, rightOverlap, topOverlap, bottomOverlap });
+
+                // Adjust ball position to prevent re-collision
+                if (minOverlap == leftOverlap)
                 {
-                    if (std::abs(dx) > std::abs(dy))
-                        ball.speed.x *= -1;
-                    else
-                        ball.speed.y *= -1;
+                    ball.speed.x = -std::abs(ball.speed.x); // Hit left side, bounce left
+                    ball.position.x = bricks[i][j].rect.x - ball.radius - 0.1f;
                 }
-                else
+                else if (minOverlap == rightOverlap)
                 {
-                    ball.speed.y *= -1;
+                    ball.speed.x = std::abs(ball.speed.x); // Hit right side, bounce right
+                    ball.position.x = bricks[i][j].rect.x + bricks[i][j].rect.width + ball.radius + 0.1f;
+                }
+                else if (minOverlap == topOverlap)
+                {
+                    ball.speed.y = -std::abs(ball.speed.y); // Hit top, bounce up
+                    ball.position.y = bricks[i][j].rect.y - ball.radius - 0.1f;
+                }
+                else // bottomOverlap
+                {
+                    ball.speed.y = std::abs(ball.speed.y); // Hit bottom, bounce down
+                    ball.position.y = bricks[i][j].rect.y + bricks[i][j].rect.height + ball.radius + 0.1f;
                 }
 
+                // Ensure minimum horizontal speed
                 if (std::abs(ball.speed.x) < MIN_BALL_SPEED_X)
                     ball.speed.x = (ball.speed.x >= 0 ? MIN_BALL_SPEED_X : -MIN_BALL_SPEED_X);
 
-                return true;
+                return true; // Exit after handling one collision
             }
         }
     }
@@ -428,13 +459,24 @@ void UpdateGame()
                 if (!ball.active) continue;
 
                 anyBallActive = true;
+                ball.hasCollided = false; // Reset collision flag each frame
                 ball.position.x += ball.speed.x;
                 ball.position.y += ball.speed.y;
 
+                // Border collision
                 if (ball.position.x + ball.radius >= SCREEN_WIDTH || ball.position.x - ball.radius <= 0)
-                    ball.speed.x *= -1;
+                {
+                    ball.speed.x *= -1; // Reverse horizontal direction
+                    // Ensure minimum horizontal speed to prevent vertical bouncing loop
+                    if (std::abs(ball.speed.x) < MIN_BALL_SPEED_X)
+                    {
+                        ball.speed.x = (ball.speed.x >= 0 ? MIN_BALL_SPEED_X : -MIN_BALL_SPEED_X);
+                    }
+                }
                 if (ball.position.y - ball.radius <= 0)
+                {
                     ball.speed.y *= -1;
+                }
 
                 if (ball.position.y + ball.radius >= SCREEN_HEIGHT)
                 {
