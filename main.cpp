@@ -27,9 +27,9 @@ constexpr float BRICK_WIDTH = static_cast<float>(SCREEN_WIDTH) / BRICKS_PER_ROW;
 constexpr float BRICK_HEIGHT = 30.0f;
 constexpr float BRICK_SPACING = 2.0f;
 
-constexpr float TIME_LIMIT_EASY = 90.0f;    // 1.5 minutes
-constexpr float TIME_LIMIT_MEDIUM = 120.0f; // 2 minutes
-constexpr float TIME_LIMIT_HARD = 150.0f;   // 2.5 minutes
+constexpr float TIME_LIMIT_EASY = 180.0f;    // 3 minutes
+constexpr float TIME_LIMIT_MEDIUM = 180.0f; // 3 minutes
+constexpr float TIME_LIMIT_HARD = 180.0f;   // 3 minutes
 
 constexpr float POWERUP_SIZE = 20.0f;
 constexpr float POWERUP_SPEED = 2.0f;
